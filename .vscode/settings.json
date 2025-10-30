@@ -1,0 +1,17 @@
+﻿{
+  "editor.semanticHighlighting.enabled": true,
+  "editor.semanticTokenColorCustomizations": {
+    "enabled": true,
+    "rules": {
+      "namespace": "#569CD6",
+      "class": "#4EC9B0",
+      "type": "#4EC9B0",
+      "interface": "#B8D7A3",
+      "enum": "#C586C0",
+      "parameter": "#9CDCFE",
+      "property": "#DCDCAA"
+    }
+  },
+  "omnisharp.useModernNet": true,
+  "omnisharp.loggingLevel": "debug"
+}
