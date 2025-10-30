@@ -1,0 +1,39 @@
+name: CI - Run Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  run-tests:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Show repo info
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Commit: $GITHUB_SHA"
+
+      - name: Run test runner (PowerShell)
+        shell: pwsh
+        run: |
+          Write-Host "Running run-tests.ps1..."
+          # Exit non-zero on failure; run-tests.ps1 returns dotnet test exit code
+          pwsh -NoProfile -ExecutionPolicy Bypass -File .\run-tests.ps1
+
+      - name: Upload test results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-log
+          path: tests/Ofel.Tests/TestsResults.txt
+          retention-days: 7
