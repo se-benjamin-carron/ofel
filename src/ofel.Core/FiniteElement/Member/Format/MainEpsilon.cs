@@ -2,8 +2,9 @@ using System;
 using System.Formats.Asn1;
 using System.Text.RegularExpressions;
 using MathNet.Numerics.LinearAlgebra;
+using Ofel.Core.SectionParameter;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
 
     public enum KindMainEpsilon
@@ -28,6 +29,8 @@ namespace ofel.Core
         /// Float value of the epsilon between 0 and 1
         /// </summary>
         public double Epsilon { get; set; }
+        public IGeometry? Geometry { get; set; }
+        public IMaterial? Material { get; set; }
 
         public KindMainEpsilon Kind { get; set; }
 
@@ -38,6 +41,15 @@ namespace ofel.Core
             Epsilon = epsilon;
             Kind = kind;
         }
+        public void SetGeometry(IGeometry geometry)
+        {
+            Geometry = geometry;
+        }
+        public void SetMaterial(IMaterial material)
+        {
+            Material = material;
+        }
+
         public List<float> GetNeighbouringEpsilons()
         {
             switch (Kind)

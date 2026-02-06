@@ -1,4 +1,7 @@
-namespace ofel.Core
+using Ofel.Core.SectionParameter;
+
+
+namespace Ofel.Core
 {
     public static class IntervalDataCalc
     {

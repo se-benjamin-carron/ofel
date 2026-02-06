@@ -1,4 +1,4 @@
-namespace ofel.Core
+namespace Ofel.Core
 {
 
     /// <summary>

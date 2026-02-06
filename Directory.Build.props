@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <!-- Target framework global pour tous les projets -->
+    <TargetFramework>net9.0</TargetFramework>
+
+    <!-- Nullable et implicit usings -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Version globale de LangVersion -->
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- Tu peux aussi définir des versions de package globales ici -->
+	<ItemGroup>
+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
+	</ItemGroup>
+
+</Project>

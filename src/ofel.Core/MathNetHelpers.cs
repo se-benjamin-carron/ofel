@@ -1,6 +1,6 @@
 using MathNet.Numerics.LinearAlgebra;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     public static class MathNetHelpers
     {

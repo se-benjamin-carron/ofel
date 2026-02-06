@@ -1,11 +1,13 @@
+using MathNet.Numerics.LinearAlgebra;
+using Ofel.Core;
+using Ofel.Core.Utils;
+using Ofel.MatrixCalc;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
-using MathNet.Numerics.LinearAlgebra;
-using Ofel.MatrixCalc;
+using System.Text;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     /// <summary>
     /// Small wrapper tying a `Member` domain object to finite-element settings for that member.
@@ -29,13 +31,13 @@ namespace ofel.Core
         public Matrix<double> GlobalStiffnessMatrix { get; set; } = null!;
         public Matrix<double> GlobalMassMatrix { get; set; } = null!;
         public Matrix<double> GlobalUniformStressMatrix { get; set; } = null!;
-        public Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>> EffortsByLoadCase
+        public Dictionary<string, Vector<double>> EffortsByLoadCase
         {
             get; set;
-        } = new Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>>();
+        } = new Dictionary<string, Vector<double>>();
 
-        public Dictionary<string, Dictionary<int, MathNet.Numerics.LinearAlgebra.Vector<double>>> GlobalDisplacements
-            = new Dictionary<string, Dictionary<int, MathNet.Numerics.LinearAlgebra.Vector<double>>>();
+        public Dictionary<string, Dictionary<int, Vector<double>>> GlobalDisplacements
+            = new Dictionary<string, Dictionary<int, Vector<double>>>();
         public ResultFormat ResultsCombination { get; set; } = new ResultFormat();
 
         /// <summary>
@@ -78,6 +80,7 @@ namespace ofel.Core
                     for (int d = 0; d < 6; d++) conn.Add(6 * (i + 1) + d);
 
                     var A = AssemblyMatrixClass.GetAssemblyMatrix(memberDofs, conn);
+
                     if (interval.GlobalStiffnessMatrix != null)
                         globalK += AssemblyMatrixClass.AssembleMatrix(A, interval.GlobalStiffnessMatrix);
                     if (interval.GlobalMassMatrix != null)
@@ -85,7 +88,6 @@ namespace ofel.Core
                     if (interval.GlobalUniformStressMatrix != null)
                         globalStress += AssemblyMatrixClass.AssembleMatrix(A, interval.GlobalUniformStressMatrix);
                 }
-
                 GlobalStiffnessMatrix = globalK;
                 GlobalMassMatrix = globalM;
                 GlobalUniformStressMatrix = globalStress;
@@ -115,7 +117,7 @@ namespace ofel.Core
             return true;
         }
 
-        public Tuple<List<PointStructureData>, List<PointStructureData>> GetPointsStructureData(List<PointStructureData> pointsAllStructure)
+        public Tuple<List<PointStructureData>, List<PointStructureData>> GetPointsStructureData(List<PointStructureData> pointsAllStructure, ref int nextPointIdStructure)
         {
             var pointsMember = new List<PointStructureData>();
             var epsilonList = Intervals.Select(i => i.Epsilon1).ToList();
@@ -130,22 +132,24 @@ namespace ofel.Core
                     var distance = pas.Point.DistanceTo(pt);
                     var share = pas.IsPossibleToSharePoint();
                     var existngfalse = !existing;
-                    if (pas.Point.DistanceTo(pt) < 5e-7 && pas.IsPossibleToSharePoint() && !existing)
+                    if (distance < 5e-7 && share && !existing)
                     {
-                       if (pas.IsAssembly && IsSupport){
+                        if (pas.IsAssembly && IsSupport)
+                        {
                             pas.IsSupport = true;
                             pas.SupportConditions = d_o_f;
-                       }
-                       if (pas.IsSupport && IsAssembly)
-                       {
+                        }
+                        if (pas.IsSupport && IsAssembly)
+                        {
                             pas.IsAssembly = true;
-                       }
+                        }
                         existing = true;
-                                            }
+                        pointsMember.Add(pas);
+                    }
                 }
                 if (!existing)
                 {
-                    PointStructureData psd = new PointStructureData(pt, IsAssembly, IsSupport, d_o_f);
+                    PointStructureData psd = new PointStructureData(pt, IsAssembly, IsSupport, d_o_f, ref nextPointIdStructure);
                     pointsMember.Add(psd);
                     pointsAllStructure.Add(psd);
                 }
@@ -166,25 +170,26 @@ namespace ofel.Core
             return Tuple.Create(pt, IsAssembly, IsSupport, d_o_f);
         }
 
-        public void MapResultsToMemberIntervals(Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>> memberGlobalDisplacements)
+        public void MapResultsToMemberIntervals(Dictionary<string, Vector<double>> memberGlobalDisplacements)
         {
             foreach (var (loading_case, displacements) in memberGlobalDisplacements)
             {
                 for (int i = 0; i < Intervals.Count; i++)
                 {
-                    MathNet.Numerics.LinearAlgebra.Vector<double> mainEpsilonGlobalDisplacements = displacements.SubVector(i * 6, 6);
+                    Vector<double> mainEpsilonGlobalDisplacements = displacements.SubVector(i * 6, 6);
                     IntervalData intervalData = Intervals[i];
-                    MathNet.Numerics.LinearAlgebra.Vector<double> local_displacements = RotationMatrixClass.SwitchVectorFromGlobalToLocal(
+                    Vector<double> local_displacements = RotationMatrixClass.SwitchVectorFromGlobalToLocal(
                         intervalData.RotationMatrix,
                         mainEpsilonGlobalDisplacements);
+
                     intervalData.LocalDisplacements[loading_case] = local_displacements;
                     intervalData.computeInternalEfforts(loading_case);
                 }
             }
         }
 
-        public Dictionary<string, Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>>> GetMemberDisplacementsCombinations(
-            Dictionary<string, Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>>> allDisplacementsCombinations,
+        public Dictionary<string, Dictionary<string, Vector<double>>> GetMemberDisplacementsCombinations(
+            Dictionary<string, Dictionary<string, Vector<double>>> allDisplacementsCombinations,
             Matrix<double> assemblyMatrix
         )
         {
@@ -192,25 +197,27 @@ namespace ofel.Core
                 kv => kv.Key,
                 kv => kv.Value.ToDictionary(
                     caseKv => caseKv.Key,
-                    caseKv => AssemblyMatrixClass.DisAssembleVector(assemblyMatrix, caseKv.Value)
+                    caseKv => AssemblyMatrixClass.DisAssembleVector(assemblyMatrix.Transpose(), caseKv.Value)
                 )
             );
         }
 
         public void AdaptGlobalCombinationsToLocal(
-            Dictionary<string, Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>>> allDisplacementsCombinations,
+            Dictionary<string, Dictionary<string, Vector<double>>> allDisplacementsCombinations,
             Matrix<double> assemblyMatrix)
         {
             ResultFormat resultFormat = new ResultFormat();
             var GlobalMemberDisplacements = GetMemberDisplacementsCombinations(allDisplacementsCombinations, assemblyMatrix);
-            foreach (var (combination, memberDisplacements) in GlobalMemberDisplacements)
-            {
-                    resultFormat.Uls = InternalDataFromGlobalDisplacements(memberDisplacements);
-            }
+            resultFormat.Uls = InternalDataFromGlobalDisplacements(GlobalMemberDisplacements["ULS_F"]);
+            resultFormat.UlsAcc = InternalDataFromGlobalDisplacements(GlobalMemberDisplacements["ULS_Acc"]);
+            resultFormat.SlsQp = InternalDataFromGlobalDisplacements(GlobalMemberDisplacements["SLS_QP"]);
+            resultFormat.SlsFrequent = InternalDataFromGlobalDisplacements(GlobalMemberDisplacements["SLS_Frequent"]);
+            resultFormat.SlsCar = InternalDataFromGlobalDisplacements(GlobalMemberDisplacements["SLS_Car"]);
+
             ResultsCombination = resultFormat;
         }
 
-        public Dictionary<string, CombinationsData> InternalDataFromGlobalDisplacements(Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>> memberGlobalDisplacements)
+        public Dictionary<string, CombinationsData> InternalDataFromGlobalDisplacements(Dictionary<string, Vector<double>> memberGlobalDisplacements)
         {
             double[] all_epsilon = AllEpsilons.Select(e => e.Epsilon).ToArray();
             double[] allEpsilonMiddle = AllEpsilons
@@ -219,24 +226,36 @@ namespace ofel.Core
             Dictionary<string, CombinationsData> allResult = new Dictionary<string, CombinationsData>();
             foreach (var (loading_case, memberCaseDisplacements) in memberGlobalDisplacements)
             {
-                List<MathNet.Numerics.LinearAlgebra.Vector<double>> allInternalEffortsCase = new List<MathNet.Numerics.LinearAlgebra.Vector<double>>();
-                List<MathNet.Numerics.LinearAlgebra.Vector<double>> allDisplacementsCase = new List<MathNet.Numerics.LinearAlgebra.Vector<double>>();
+                List<Vector<double>> allInternalEffortsCase = new List<Vector<double>>();
+                List<Vector<double>> allDisplacementsCase = new List<Vector<double>>();
                 for (int i = 0; i < Intervals.Count; i++)
                 {
-                    MathNet.Numerics.LinearAlgebra.Vector<double> localDisplacements = RotationMatrixClass.SwitchVectorFromGlobalToLocal(
+
+                    Vector<double> memberDisplacementsIntervals = memberCaseDisplacements.SubVector(i * 6, 12);
+                    Vector<double> localDisplacements = RotationMatrixClass.SwitchVectorFromGlobalToLocal(
                         Intervals[i].RotationMatrix,
-                        memberCaseDisplacements.SubVector(i * 6, 6));
-                    allInternalEffortsCase.Add(Intervals[i].StiffnessMatrix * localDisplacements);
-                    allDisplacementsCase.Add(localDisplacements);
+                        memberDisplacementsIntervals);
+                    var leftDisplacements = localDisplacements.SubVector(0, 6);
+                    var rightDisplacements = localDisplacements.SubVector(6, 6);
+                    var internalEffortsInterval12x1 = Intervals[i].StiffnessMatrix * localDisplacements;
+                    var internalEffortInterval6x1 = Vector<double>.Build.Dense(6);
+                    for (int j = 0; j < 6; j++)
+                    {
+                        internalEffortInterval6x1[j] = (internalEffortsInterval12x1[j] - internalEffortsInterval12x1[j + 6]) / 2.0;
+                    }
+                    allDisplacementsCase.Add(leftDisplacements);
+                    if (i == Intervals.Count - 1)
+                    {
+                        allDisplacementsCase.Add(rightDisplacements);
+                    }
+                    allInternalEffortsCase.Add(internalEffortInterval6x1);
                 }
-                double[,] interpolatedDisplacements = InterpolateArray(
-                    allEpsilonMiddle,
-                    allDisplacementsCase.ToArray(),
-                    all_epsilon);
                 double[,] interpolatedEfforts = InterpolateArray(
                     allEpsilonMiddle,
                     allInternalEffortsCase.ToArray(),
                     all_epsilon);
+                int cols = allDisplacementsCase.Count();
+
                 ForceResults internalEfforts = new ForceResults(
                     Enumerable.Range(0, interpolatedEfforts.GetLength(1)).Select(i => interpolatedEfforts[0, i]).ToArray(),
                     Enumerable.Range(0, interpolatedEfforts.GetLength(1)).Select(i => interpolatedEfforts[1, i]).ToArray(),
@@ -245,20 +264,21 @@ namespace ofel.Core
                     Enumerable.Range(0, interpolatedEfforts.GetLength(1)).Select(i => interpolatedEfforts[4, i]).ToArray(),
                     Enumerable.Range(0, interpolatedEfforts.GetLength(1)).Select(i => interpolatedEfforts[5, i]).ToArray()
                 );
-                DisplacementsResults displacementsResults = new DisplacementsResults(
-                    Enumerable.Range(0, interpolatedDisplacements.GetLength(1)).Select(i => interpolatedDisplacements[0, i]).ToArray(),
-                    Enumerable.Range(0, interpolatedDisplacements.GetLength(1)).Select(i => interpolatedDisplacements[1, i]).ToArray(),
-                    Enumerable.Range(0, interpolatedDisplacements.GetLength(1)).Select(i => interpolatedDisplacements[2, i]).ToArray(),
-                    Enumerable.Range(0, interpolatedDisplacements.GetLength(1)).Select(i => interpolatedDisplacements[3, i]).ToArray(),
-                    Enumerable.Range(0, interpolatedDisplacements.GetLength(1)).Select(i => interpolatedDisplacements[4, i]).ToArray(),
-                    Enumerable.Range(0, interpolatedDisplacements.GetLength(1)).Select(i => interpolatedDisplacements[5, i]).ToArray()
-                );
+                // Par ce code corrigé :
+                var ux = allDisplacementsCase.Select(v => v[0]).ToArray();
+                var uy = allDisplacementsCase.Select(v => v[1]).ToArray();
+                var uz = allDisplacementsCase.Select(v => v[2]).ToArray();
+                var thetax = allDisplacementsCase.Select(v => v[3]).ToArray();
+                var thetay = allDisplacementsCase.Select(v => v[4]).ToArray();
+                var thetaz = allDisplacementsCase.Select(v => v[5]).ToArray();
+
+                DisplacementsResults displacementsResults = new DisplacementsResults(ux, uy, uz, thetax, thetay, thetaz);
                 CombinationsData combinationData = new CombinationsData(internalEfforts, displacementsResults);
                 allResult[loading_case] = combinationData;
             }
             return allResult;
         }
-        public static double[,] InterpolateArray(double[] x, MathNet.Numerics.LinearAlgebra.Vector<double>[] y, double[] x_new)
+        public static double[,] InterpolateArray(double[] x, Vector<double>[] y, double[] x_new)
         {
             int dim = y[0].Count;
             var y_new = new double[dim, x_new.Length];

@@ -2,20 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Reflection.PortableExecutable;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
-    public interface ICharacteristic
-    {
-        string Kind { get; }
-
-        /// <summary>
-        /// Return the epsilon positions (0..1) that this characteristic concerns.
-        /// Cannot be empty (no epsilon), one value, or multiple (e.g. haunch start/end).
-        /// </summary>
-        IEnumerable<double> GetEpsilons();
-        MainEpsilon[] ToMainEpsilon();
-    }
-
     /// <summary>
     /// Structure explicite pour représenter les degrés de liberté libérés (released).
     /// true = released (mouvement autorisé), false = restrained (encastré)
@@ -59,7 +47,6 @@ namespace ofel.Core
         }
     }
 
-
     /// <summary>
     /// Indique si l'axe est articulé (hinged) sur X/Y/Z
     /// </summary>
@@ -86,33 +73,59 @@ namespace ofel.Core
         Natural = 1,
         Inverse = -1
     }
-  
-    public class SupportChar : ICharacteristic
+
+    public abstract class Characteristic
     {
-        public string Kind => "support";
+        public string Kind { get; protected set; }
+        public Characteristic(string kindChar)
+        {
+            Kind = kindChar;
+        }
+
+        public abstract Characteristic Clone();
+        public abstract IEnumerable<double> GetEpsilons();
+        public abstract MainEpsilon[] ToMainEpsilon();
+
+    }
+
+    public abstract class Characteristic<TSelf> : Characteristic
+    where TSelf : Characteristic<TSelf>
+    {
+        public Characteristic(string name) : base(name) { }
+
+        protected abstract TSelf CloneTyped();
+
+        public sealed override Characteristic Clone()
+            => CloneTyped();
+    }
+
+    public class SupportChar : Characteristic<SupportChar>
+    {
         public double Epsilon { get; }
         public DegreesOfFreedom DegreesOfFreedom { get; }
 
-        public SupportChar(double epsilon, DegreesOfFreedom dof)
+        public SupportChar(double epsilon, DegreesOfFreedom dof) : base("support")
         {
             Epsilon = epsilon;
             DegreesOfFreedom = dof;
         }
 
-        public IEnumerable<double> GetEpsilons()
+        public override IEnumerable<double> GetEpsilons()
         {
             yield return Epsilon;
         }
-        public MainEpsilon[] ToMainEpsilon()
+        public override MainEpsilon[] ToMainEpsilon()
         {
             return new MainEpsilon[] { new MainEpsilon(Epsilon, KindMainEpsilon.SupportChar) };
         }
+        protected override SupportChar CloneTyped()
+        {
+            return new SupportChar(Epsilon, DegreesOfFreedom);
+        }
     }
 
-    public class HingeChar : ICharacteristic
+    public class HingeChar : Characteristic<HingeChar>
     {
-        public string Kind => "hinge";
-
         // Indique sur quels axes l'élément est articulé
         public IsHinged HingedAxes { get; }
 
@@ -122,18 +135,18 @@ namespace ofel.Core
         // sens de l'articulation par axe
         public Direction HingedDirection { get; }
 
-        public HingeChar(IsHinged hingedAxes, double epsilon, Direction hingedDirection)
+        public HingeChar(IsHinged hingedAxes, double epsilon, Direction hingedDirection) : base("hinge")
         {
             HingedAxes = hingedAxes;
             Epsilon = epsilon;
             HingedDirection = hingedDirection;
         }
 
-        public IEnumerable<double> GetEpsilons()
+        public override IEnumerable<double> GetEpsilons()
         {
             yield return Epsilon;
         }
-        public MainEpsilon[] ToMainEpsilon()
+        public override MainEpsilon[] ToMainEpsilon()
         {
             return new MainEpsilon[] {
                 new MainEpsilon(
@@ -143,78 +156,92 @@ namespace ofel.Core
                         : KindMainEpsilon.UnNaturalHingeChar
                 ) };
         }
+        protected override HingeChar CloneTyped()
+        {
+            return new HingeChar(HingedAxes, Epsilon, HingedDirection);
+        }
     }
 
-    public class HaunchChar : ICharacteristic
+    public class HaunchChar : Characteristic<HaunchChar>
     {
-        public string Kind => "haunch";
         // epsilon au début et à la fin de la haunch
         public double EpsilonStart { get; }
         public double EpsilonEnd { get; }
         // ratio caractéristique de la haunch
         public double HaunchRatio { get; }
 
-        public HaunchChar(double epsilonStart, double epsilonEnd, double haunchRatio)
+        public HaunchChar(double epsilonStart, double epsilonEnd, double haunchRatio) : base("haunch")
         {
             EpsilonStart = epsilonStart;
             EpsilonEnd = epsilonEnd;
             HaunchRatio = haunchRatio;
         }
 
-        public IEnumerable<double> GetEpsilons()
+        public override IEnumerable<double> GetEpsilons()
         {
             yield return EpsilonStart;
             yield return EpsilonEnd;
         }
-        public MainEpsilon[] ToMainEpsilon()
+        public override MainEpsilon[] ToMainEpsilon()
         {
             return new MainEpsilon[] {
                 new MainEpsilon(EpsilonStart, KindMainEpsilon.HaunchChar),
                 new MainEpsilon(EpsilonEnd, KindMainEpsilon.HaunchChar)
             };
         }
+
+        protected override HaunchChar CloneTyped()
+        {
+            return new HaunchChar(EpsilonStart, EpsilonEnd, HaunchRatio);
+        }
     }
 
-    public class AssemblyChar : ICharacteristic
+    public class AssemblyChar : Characteristic<AssemblyChar>
     {
-        public string Kind => "assembly";
         // Position epsilon associée à l'assembly
         public double Epsilon { get; }
 
-        public AssemblyChar(double epsilon)
+        public AssemblyChar(double epsilon) : base("assembly")
         {
             Epsilon = epsilon;
         }
 
-        public IEnumerable<double> GetEpsilons()
+        public override IEnumerable<double> GetEpsilons()
         {
             yield return Epsilon;
         }
-        public MainEpsilon[] ToMainEpsilon()
+        public override MainEpsilon[] ToMainEpsilon()
         {
             return new MainEpsilon[] { new MainEpsilon(Epsilon, KindMainEpsilon.AssemblyChar) };
         }
+        protected override AssemblyChar CloneTyped()
+        {
+            return new AssemblyChar(Epsilon);
+        }
     }
 
-    public class SpringChar : ICharacteristic
+    public class SpringChar : Characteristic<SpringChar>
     {
-        public string Kind => "spring";
         public Spring Spring { get; }
         public double Epsilon { get; }
 
-        public SpringChar(Spring spring, double epsilon)
+        public SpringChar(Spring spring, double epsilon) : base("spring")
         {
             Spring = spring;
             Epsilon = epsilon;
         }
 
-        public IEnumerable<double> GetEpsilons()
+        public override IEnumerable<double> GetEpsilons()
         {
             yield return Epsilon;
         }
-        public MainEpsilon[] ToMainEpsilon()
+        public override MainEpsilon[] ToMainEpsilon()
         {
             return new MainEpsilon[] { new MainEpsilon(Epsilon, KindMainEpsilon.SpringChar) };
+        }
+        protected override SpringChar CloneTyped()
+        {
+            return new SpringChar(Spring, Epsilon);
         }
     }
 }

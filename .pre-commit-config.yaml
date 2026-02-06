@@ -10,26 +10,22 @@ repos:
     rev: 24.1.0
     hooks:
       - id: black
-        language_version: python3
-        files: \\.(py|pyi)$
+        language_version: python3.10
+        files: '\.(py|pyi)$'
   - repo: local
     hooks:
       - id: dotnet-format-verify
         name: dotnet format (verify no changes)
-        description: Run `dotnet format --verify-no-changes` to ensure formatting matches dotnet-format.
+        description: "Run `dotnet format --verify-no-changes` to ensure formatting matches dotnet-format."
         entry: dotnet
         args: ["format", "--verify-no-changes"]
         language: system
-      - id: editorconfig-checker
-        name: editorconfig-checker (optional)
-        description: Verify that files adhere to .editorconfig (requires editorconfig-checker to be available)
-        entry: editorconfig-checker
-        args: ["--no-color"]
-        language: system
-
-  # Optional: detect secrets / aws creds
+        pass_filenames: false
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.4.0
     hooks:
       - id: detect-secrets
         args: ["--baseline", ".secrets.baseline"]
+
+default_language_version:
+  python: python3.10

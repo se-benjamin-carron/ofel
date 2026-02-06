@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     /// <summary>
     /// Utility to compute the list of MainEpsilon for a member.

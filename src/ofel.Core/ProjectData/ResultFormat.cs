@@ -3,7 +3,7 @@ using System.Formats.Asn1;
 using System.Text.RegularExpressions;
 using MathNet.Numerics.LinearAlgebra;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
 
     public enum CombinationType
@@ -13,7 +13,6 @@ namespace ofel.Core
         SLS,
         SLSQuasiPermanent,
         SLSFrequent,
-        SLSRare,
     }
 
     public enum LoadingDuration
@@ -83,7 +82,7 @@ namespace ofel.Core
         }
 
     }
-    
+
     public class CombinationsData
     {
         public ForceResults InternalEffortsCase { get; set; }
@@ -129,8 +128,8 @@ namespace ofel.Core
         public Dictionary<string, CombinationsData> UniqueCase { get; set; }
         public Dictionary<string, CombinationsData> Uls { get; set; }
         public Dictionary<string, CombinationsData> UlsAcc { get; set; }
+        public Dictionary<string, CombinationsData> SlsCar { get; set; }
         public Dictionary<string, CombinationsData> SlsQp { get; set; }
-        public Dictionary<string, CombinationsData> SlsRare { get; set; }
         public Dictionary<string, CombinationsData> SlsFrequent { get; set; }
 
         public ResultFormat(Dictionary<string, CombinationsData> uniqueCase)
@@ -138,22 +137,23 @@ namespace ofel.Core
             UniqueCase = uniqueCase;
             Uls = new Dictionary<string, CombinationsData>();
             UlsAcc = new Dictionary<string, CombinationsData>();
+            SlsCar = new Dictionary<string, CombinationsData>();
             SlsQp = new Dictionary<string, CombinationsData>();
-            SlsRare = new Dictionary<string, CombinationsData>();
             SlsFrequent = new Dictionary<string, CombinationsData>();
         }
 
         public ResultFormat(Dictionary<string, CombinationsData> uls,
             Dictionary<string, CombinationsData> ulsAcc,
             Dictionary<string, CombinationsData> slsQp,
-            Dictionary<string, CombinationsData> slsRare,
+            Dictionary<string, CombinationsData> slsCc,
             Dictionary<string, CombinationsData> slsFrequent)
         {
             UniqueCase = new Dictionary<string, CombinationsData>();
             Uls = uls;
             UlsAcc = ulsAcc;
             SlsQp = slsQp;
-            SlsRare = slsRare;
+            SlsCar = slsCc;
+            //SlsRare = slsRare;
             SlsFrequent = slsFrequent;
         }
         public ResultFormat()
@@ -161,13 +161,10 @@ namespace ofel.Core
             UniqueCase = new Dictionary<string, CombinationsData>();
             Uls = new Dictionary<string, CombinationsData>();
             UlsAcc = new Dictionary<string, CombinationsData>();
+            SlsCar = new Dictionary<string, CombinationsData>();
             SlsQp = new Dictionary<string, CombinationsData>();
-            SlsRare = new Dictionary<string, CombinationsData>();
+            //SlsRare = new Dictionary<string, CombinationsData>();
             SlsFrequent = new Dictionary<string, CombinationsData>();
         }
-        // public CombineCaseToCombinationResults()
-        // {
-
-        // }
     }
 }

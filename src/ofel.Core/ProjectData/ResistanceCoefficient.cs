@@ -1,8 +1,8 @@
-namespace ofel.Core
+namespace Ofel.Core
 {
     public class ProjectResistanceCoefficient
     {
-       public ProjectResistanceCoefficient()
+        public ProjectResistanceCoefficient()
         {
             Steel = new SteelResistanceCoefficient();
             Concrete = new ConcreteResistanceCoefficient();
@@ -19,7 +19,7 @@ namespace ofel.Core
 
     public class SteelResistanceCoefficient : ResistanceCoefficient
     {
-  
+
         public SteelResistanceCoefficient(bool isAdvanced = false, IList<double>? gammaM = null)
         {
             if (isAdvanced && gammaM != null && gammaM.Count == 6)

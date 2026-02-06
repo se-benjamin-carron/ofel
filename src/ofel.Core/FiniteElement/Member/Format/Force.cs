@@ -1,9 +1,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using MathNet.Numerics.LinearAlgebra;
+using Ofel.Core.Utils;
 using Ofel.MatrixCalc;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     public enum ForceLoadingTime
     {
@@ -16,14 +17,16 @@ namespace ofel.Core
     public enum ForceKind
     {
         OwnWeight,
+        PermanentLoad,
         Wind,
         Snow,
-        Seismic,
+        Accidental,
         LiveLoad,
         Thermal,
         Collision,
+        Seismic,
         Default
-   }
+    }
     public enum ForceShape
     {
         LocalPunctualForce,
@@ -31,21 +34,21 @@ namespace ofel.Core
         LocalLinearForce,
         GlobalLinearForce,
         InternalEffort,
-   }
+    }
 
     /// <summary>
     /// Represents a 6-component force (Fx,Fy,Fz,Mx,My,Mz) at a position.
     /// </summary>
     public sealed class ForceValue
     {
-        public float Fx { get; }
-        public float Fy { get; }
-        public float Fz { get; }
-        public float Mx { get; }
-        public float My { get; }
-        public float Mz { get; }
+        public double Fx { get; }
+        public double Fy { get; }
+        public double Fz { get; }
+        public double Mx { get; }
+        public double My { get; }
+        public double Mz { get; }
 
-        public ForceValue(float fx, float fy, float fz, float mx = 0f, float my = 0f, float mz = 0f)
+        public ForceValue(double fx, double fy, double fz, double mx = 0.0, double my = 0.0, double mz = 0.0)
         {
             Fx = fx;
             Fy = fy;
@@ -54,45 +57,48 @@ namespace ofel.Core
             My = my;
             Mz = mz;
         }
+
         public Vector<double> GetVector()
         {
             return Vector<double>.Build.Dense(new double[] { Fx, Fy, Fz, Mx, My, Mz });
         }
+        public bool Equals(ForceValue other, double threshold = 1e-6)
+        {
+            if (other is null) return false;
+
+            return Math.Abs(Fx - other.Fx) < threshold
+                && Math.Abs(Fy - other.Fy) < threshold
+                && Math.Abs(Fz - other.Fz) < threshold
+                && Math.Abs(Mx - other.Mx) < threshold
+                && Math.Abs(My - other.My) < threshold
+                && Math.Abs(Mz - other.Mz) < threshold;
+        }
+
+
     }
-
-    /// <summary>
-    /// Base abstraction for forces applied to a Member.
-    /// ForceKind should be a short string identifying the subtype (e.g. "global-linear").
-    /// Each force can provide its local force vector given rotation and epsilon data.
-    /// </summary>
     public abstract class Force
-
     {
-        public ForceKind Kind { get; set; }
-        public ForceShape Shape { get; set; }
+        public ForceKind Kind { get; protected set; }
+        public ForceShape Shape { get; protected set; }
+        public int KindCase { get; protected set; }
 
-        public int KindCase { get; set; }
-        public List<(float Epsilon, ForceValue Value)> ForcesByEpsilon { get; set; }
+        public List<(double Epsilon, ForceValue Value)> ForcesByEpsilon { get; protected set; }
+            = new();
+
+        public Vector<double> GlobalForce { get; protected set; }
+            = Vector<double>.Build.Dense(0);
 
         protected Force(ForceShape shape)
         {
             Shape = shape;
             Kind = ForceKind.Default;
             KindCase = 0;
-            ForcesByEpsilon = new List<(float Epsilon, ForceValue Value)>();
-            GlobalForce = Vector<double>.Build.Dense(0);
         }
-
-        /// <summary>
-        /// The Global force vector associated to the member
-        /// </summary>
-        public Vector<double> GlobalForce { get; set; }
 
         public List<MainEpsilon> ToMainEpsilon()
-        {
-            return ForcesByEpsilon.Select(static f => new MainEpsilon(f.Epsilon, KindMainEpsilon.Force)).ToList();
-
-        }
+            => ForcesByEpsilon
+                .Select(f => new MainEpsilon(f.Epsilon, KindMainEpsilon.Force))
+                .ToList();
 
         public virtual Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
         {
@@ -100,6 +106,60 @@ namespace ofel.Core
             return Vector<double>.Build.Dense(6 * n, 0.0);
         }
 
+        public static (ForceKind, int) StringToForceId(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                throw new ArgumentException("Input vide");
+
+            var parts = input.Split('_', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length != 2)
+                throw new ArgumentException($"Format invalide : {input}");
+
+            if (!_forceMap.TryGetValue(parts[0], out var kind))
+                throw new ArgumentException($"Type de force inconnu : {parts[0]}");
+
+            if (!int.TryParse(parts[1], out int id))
+                throw new ArgumentException($"Indice invalide : {parts[1]}");
+
+            return (kind, id);
+        }
+
+        private static readonly Dictionary<string, ForceKind> _forceMap =
+    new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["W"] = ForceKind.Wind,
+        ["G"] = ForceKind.PermanentLoad,
+        ["Q"] = ForceKind.LiveLoad,
+        ["S"] = ForceKind.Snow,
+        ["E"] = ForceKind.Seismic,
+        ["T"] = ForceKind.Thermal,
+        ["PP"] = ForceKind.OwnWeight,
+        ["C"] = ForceKind.Collision
+    };
+
+        public abstract Force Clone();
+    }
+
+    /// <summary>
+    /// Base abstraction for forces applied to a Member.
+    /// ForceKind should be a short string identifying the subtype (e.g. "global-linear").
+    /// Each force can provide its local force vector given rotation and epsilon data.
+    /// </summary>
+    public abstract class Force<TSelf> : Force where TSelf : Force<TSelf>
+    {
+
+        protected abstract TSelf CloneTyped();
+
+        public sealed override Force Clone()
+            => CloneTyped();
+        protected Force(ForceShape shape) : base(shape)
+        {
+            Kind = ForceKind.Default;
+            KindCase = 0;
+            ForcesByEpsilon = new List<(double Epsilon, ForceValue Value)>();
+            GlobalForce = Vector<double>.Build.Dense(0);
+        }
         public Vector<double> GetForceAtEpsilon(double epsilon, bool isRight)
         {
             // Linear interpolation between the two nearest defined forces
@@ -108,12 +168,12 @@ namespace ofel.Core
 
             var sortedForces = ForcesByEpsilon.OrderBy(f => f.Epsilon).ToList();
 
-            if (epsilon <= sortedForces.First().Epsilon)
+            if (epsilon < sortedForces.First().Epsilon)
             {
                 var f = sortedForces.First().Value;
                 return Vector<double>.Build.Dense(new double[] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 });
             }
-            if (epsilon >= sortedForces.Last().Epsilon)
+            if (epsilon > sortedForces.Last().Epsilon)
             {
                 var f = sortedForces.Last().Value;
                 return Vector<double>.Build.Dense(new double[] { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 });
@@ -216,7 +276,7 @@ namespace ofel.Core
                     0.0,
                     0.0,
                     0.0,
-                    -forcePerLength * length * length / 12
+                    forcePerLength * length * length / 12
                 });
                 Vector<double> forceYRight = Vector<double>.Build.Dense(new double[]
                 {
@@ -225,7 +285,7 @@ namespace ofel.Core
                     0.0,
                     0.0,
                     0.0,
-                    forcePerLength * length * length / 12
+                    -forcePerLength * length * length / 12
                 });
                 return new Vector<double>[] { forceYLeft, forceYRight };
             }
@@ -237,7 +297,7 @@ namespace ofel.Core
                     0.0,
                     forcePerLength * length/2,
                     0.0,
-                    -forcePerLength * length * length / 12,
+                    forcePerLength * length * length / 12,
                     0.0
                 });
                 Vector<double> forceZRight = Vector<double>.Build.Dense(new double[]
@@ -246,7 +306,7 @@ namespace ofel.Core
                     0.0,
                     forcePerLength * length/2,
                     0.0,
-                    forcePerLength * length * length / 12,
+                    -forcePerLength * length * length / 12,
                     0.0
                 });
                 return new Vector<double>[] { forceZLeft, forceZRight };
@@ -254,7 +314,7 @@ namespace ofel.Core
             Vector<double> defaultVector = Vector<double>.Build.Dense(6, 0.0);
             return new Vector<double>[] { defaultVector, defaultVector };
         }
-        
+
         protected Vector<double>[] GetLinearDistributedForce(double forcePerLengthRight, double length, string axis)
         {
             if (axis == "X")
@@ -300,9 +360,9 @@ namespace ofel.Core
                     0.0,
                     3*forcePerLengthRight * length/20,
                     0.0,
-                    -forcePerLengthRight * length * length / 30,
+                    forcePerLengthRight * length * length / 30,
                     0.0
-                    
+
                 });
                 Vector<double> forceZRight = Vector<double>.Build.Dense(new double[]
                 {
@@ -310,7 +370,7 @@ namespace ofel.Core
                     0.0,
                     7*forcePerLengthRight * length/20,
                     0.0,
-                    forcePerLengthRight * length * length / 20,
+                    -forcePerLengthRight * length * length / 20,
                     0.0
                 });
                 return new Vector<double>[] { forceZLeft, forceZRight };
@@ -319,231 +379,273 @@ namespace ofel.Core
             return new Vector<double>[] { defaultVector, defaultVector };
         }
 
-    public class GlobalLinearForce : Force
+    }
+    public class GlobalLinearForce : Force<GlobalLinearForce>
+    {
+        // Dictionary mapping epsilon position -> full 6-component force value at that section
+        // The key is the epsilon (double) and the value contains Fx,Fy,Fz,Mx,My,Mz
+
+        public GlobalLinearForce(ForceKind kind, int load_case, List<(double Epsilon, ForceValue Value)> distributedForcesByEpsilon)
+            : base(ForceShape.GlobalLinearForce)
         {
-            // Dictionary mapping epsilon position -> full 6-component force value at that section
-            // The key is the epsilon (float) and the value contains Fx,Fy,Fz,Mx,My,Mz
+            Kind = kind;
+            KindCase = load_case;
+            ForcesByEpsilon = distributedForcesByEpsilon ?? new List<(double, ForceValue)>();
+        }
 
-            public GlobalLinearForce(ForceKind kind, List<(float Epsilon, ForceValue Value)> distributedForcesByEpsilon)
-                : base(ForceShape.GlobalLinearForce)
+        public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+        {
+            Vector<double> result = Vector<double>.Build.Dense(6 * (intervals.Count + 1), 0.0);
+            for (int i = 0; i < intervals.Count; i++)
             {
-                ForcesByEpsilon = distributedForcesByEpsilon ?? new List<(float, ForceValue)>();
+                double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
+                Vector<double> forceLeftGlobal = GetForceAtEpsilon(intervals[i].Epsilon1, false);
+                Vector<double> forceRightGlobal = GetForceAtEpsilon(intervals[i].Epsilon2, true);
+                var rotationMatrix6x6 = intervals[i].RotationMatrix.SubMatrix(0, 6, 0, 6);
+                // Apply the forces to the result vector
+                Vector<double> forceLeftLocal = RotationMatrixClass.SwitchVectorFromGlobalToLocal(rotationMatrix6x6, forceLeftGlobal);
+                Vector<double> forceRightLocal = RotationMatrixClass.SwitchVectorFromGlobalToLocal(rotationMatrix6x6, forceRightGlobal);
+                var intervalLocalPair = GetLocalVector(forceLeftLocal, forceRightLocal, lengthInterval);
+                // combine left and right equivalent nodal contributions into a single local vector
+                Vector<double> intervalGlobalVectorLeft = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
+                    rotationMatrix6x6, intervalLocalPair[0]);
+                Vector<double> intervalGlobalVectorRight = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
+                    rotationMatrix6x6, intervalLocalPair[1]);
+                int idxLeft = 6 * i;
+                int idxRight = 6 * (i + 1);
+
+                result.SetSubVector(idxLeft, 6, result.SubVector(idxLeft, 6) + intervalGlobalVectorLeft);
+                result.SetSubVector(idxRight, 6, result.SubVector(idxRight, 6) + intervalGlobalVectorRight);
             }
+            return result;
+        }
+        protected override GlobalLinearForce CloneTyped()
+        {
+            return new GlobalLinearForce(Kind, KindCase, ForcesByEpsilon);
+        }
+    }
 
-            public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
-            {
-                Vector<double> result = Vector<double>.Build.Dense(6 * intervals.Count, 0.0);
-                for (int i = 0; i < intervals.Count; i++)
-                {
-                    double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
-                    Vector<double> forceLeftGlobal = GetForceAtEpsilon(intervals[i].Epsilon1, false);
-                    Vector<double> forceRightGlobal = GetForceAtEpsilon(intervals[i].Epsilon2, true);
-                    // Apply the forces to the result vector
-                    Vector<double> forceLeftLocal = RotationMatrixClass.SwitchVectorFromGlobalToLocal(intervals[i].RotationMatrix, forceLeftGlobal);
-                    Vector<double> forceRightLocal = RotationMatrixClass.SwitchVectorFromGlobalToLocal(intervals[i].RotationMatrix, forceRightGlobal);
-                    var intervalLocalPair = GetLocalVector(forceLeftLocal, forceRightLocal, lengthInterval);
-                    // combine left and right equivalent nodal contributions into a single local vector
-                    Vector<double> intervalGlobalVectorLeft = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
-                        intervals[i].RotationMatrix, intervalLocalPair[0]);
-                    Vector<double> intervalGlobalVectorRight = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
-                        intervals[i].RotationMatrix, intervalLocalPair[1]);
-                    result.SetSubVector(6 * i, 6, intervalGlobalVectorLeft);
-                    result.SetSubVector(6 * (i + 1), 6, intervalGlobalVectorRight);
-                }
+    public class GlobalPunctualForce : Force<GlobalPunctualForce>
+    {
+        public GlobalPunctualForce(ForceKind kind, int load_case, List<(double Epsilon, ForceValue Value)> distributedForcesByEpsilon)
+            : base(ForceShape.GlobalPunctualForce)
+        {
+            Kind = kind;
+            KindCase = load_case;
+            ForcesByEpsilon = distributedForcesByEpsilon ?? new List<(double, ForceValue)>();
+        }
+        public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+        {
+            if (intervals == null)
+                return Vector<double>.Build.Dense(0);
+
+            int nodes = intervals.Count + 1; // n intervals -> n+1 nodes
+            Vector<double> result = Vector<double>.Build.Dense(6 * nodes, 0.0);
+
+            if (ForcesByEpsilon == null || ForcesByEpsilon.Count == 0)
                 return result;
-            }
 
-            public sealed class GlobalPunctualForce : Force
+            // Formalism: punctual force corresponds to a single force applied at one epsilon
+            var punctual = ForcesByEpsilon[0];
+            const double tol = 1e-9;
+
+            for (int i = 0; i < intervals.Count; i++)
             {
-                public GlobalPunctualForce(ForceKind kind, List<(float Epsilon, ForceValue Value)> distributedForcesByEpsilon)
-                    : base(ForceShape.GlobalPunctualForce)
+                if (intervals[i].Epsilon1 == intervals[i].Epsilon2)
                 {
-                    Kind = kind;
-                    ForcesByEpsilon = distributedForcesByEpsilon ?? new List<(float, ForceValue)>();
+                    continue; // skip zero-length intervals
                 }
-                public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+
+                if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon1) <= tol)
                 {
-                    if (intervals == null)
-                        return Vector<double>.Build.Dense(0);
+                    double coef = intervals[i].Epsilon1 == 0.0 ? 1.0 : 2.0;
+                    result.SetSubVector(6 * i, 6, punctual.Value.GetVector() / coef);
+                }
 
-                    int nodes = intervals.Count + 1; // n intervals -> n+1 nodes
-                    Vector<double> result = Vector<double>.Build.Dense(6 * nodes, 0.0);
-
-                    if (ForcesByEpsilon == null || ForcesByEpsilon.Count == 0)
-                        return result;
-
-                    // Formalism: punctual force corresponds to a single force applied at one epsilon
-                    var punctual = ForcesByEpsilon[0];
-                    const double tol = 1e-9;
-
-                    for (int i = 0; i < intervals.Count; i++)
-                    {
-                        if (intervals[i].Epsilon1 == intervals[i].Epsilon2)
-                        {
-                            continue; // skip zero-length intervals
-                        }
-
-                        if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon1) <= tol)
-                        {
-                            double coef = intervals[i].Epsilon1 == 0.0 ? 1.0 : 2.0;
-                            result.SetSubVector(6 * i, 6, punctual.Value.GetVector() / coef);
-                        }
-
-                        if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon2) <= tol)
-                        {
-                            double coef = intervals[i].Epsilon2 == 1.0 ? 1.0 : 2.0;
-                            result.SetSubVector(6 * (i + 1), 6, punctual.Value.GetVector() / coef);
-                        }
-                    }
-
-                    return result;
+                if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon2) <= tol)
+                {
+                    double coef = intervals[i].Epsilon2 == 1.0 ? 1.0 : 2.0;
+                    result.SetSubVector(6 * (i + 1), 6, punctual.Value.GetVector() / coef);
                 }
             }
 
-            public sealed class LocalLinearForce : Force
+            return result;
+        }
+        protected override GlobalPunctualForce CloneTyped()
+        {
+            return new GlobalPunctualForce(Kind, KindCase, ForcesByEpsilon);
+        }
+    }
+
+    public class LocalLinearForce : Force<LocalLinearForce>
+    {
+        public LocalLinearForce(ForceKind kind, int load_case, List<(double Epsilon, ForceValue Value)> distributedForcesByEpsilon)
+            : base(ForceShape.LocalLinearForce)
+        {
+            Kind = kind;
+            KindCase = load_case;
+            ForcesByEpsilon = distributedForcesByEpsilon;
+        }
+        public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+        {
+            Vector<double> result = Vector<double>.Build.Dense(6 * (intervals.Count + 1), 0.0);
+            for (int i = 0; i < intervals.Count; i++)
             {
-                public LocalLinearForce(ForceKind kind, List<(float Epsilon, ForceValue Value)> distributedForcesByEpsilon)
-                    : base(ForceShape.LocalLinearForce)
+                double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
+                Vector<double> forceLeftLocal = GetForceAtEpsilon(intervals[i].Epsilon1, false);
+                Vector<double> forceRightLocal = GetForceAtEpsilon(intervals[i].Epsilon2, true);
+                // Apply the forces to the result vector
+                var rotationMatrix6x6 = intervals[i].RotationMatrix.SubMatrix(0, 6, 0, 6);
+                var intervalLocalPair = GetLocalVector(forceLeftLocal, forceRightLocal, lengthInterval);
+                Vector<double> intervalGlobalVectorLeft = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
+                    rotationMatrix6x6, intervalLocalPair[0]);
+                Vector<double> intervalGlobalVectorRight = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
+                    rotationMatrix6x6, intervalLocalPair[1]);
+                int idxLeft = 6 * i;
+                int idxRight = 6 * (i + 1);
+
+                result.SetSubVector(idxLeft, 6, result.SubVector(idxLeft, 6) + intervalGlobalVectorLeft);
+                result.SetSubVector(idxRight, 6, result.SubVector(idxRight, 6) + intervalGlobalVectorRight);
+            }
+            return result;
+        }
+
+        protected override LocalLinearForce CloneTyped()
+        {
+            return new LocalLinearForce(Kind, KindCase, ForcesByEpsilon);
+        }
+
+    }
+    public class LocalPunctualForce : Force<LocalPunctualForce>
+    {
+        // Remplacer 'LocalPosition' par 'Epsilon' pour rester cohérent
+        public LocalPunctualForce(ForceKind kind, int load_case, List<(double Epsilon, ForceValue Value)> distributedForcesByEpsilon)
+            : base(ForceShape.LocalPunctualForce)
+        {
+            KindCase = load_case;
+            Kind = kind;
+            ForcesByEpsilon = distributedForcesByEpsilon;
+        }
+
+        public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+        {
+            if (intervals == null)
+                return Vector<double>.Build.Dense(0);
+
+            int nodes = intervals.Count + 1; // n intervals -> n+1 nodes
+            Vector<double> result = Vector<double>.Build.Dense(6 * nodes, 0.0);
+
+            if (ForcesByEpsilon == null || ForcesByEpsilon.Count == 0)
+                return result;
+
+            // Formalism: punctual force corresponds to a single force applied at one epsilon
+            var punctual = ForcesByEpsilon[0];
+            const double tol = 1e-9;
+
+            for (int i = 0; i < intervals.Count; i++)
+            {
+                if (intervals[i].Epsilon1 == intervals[i].Epsilon2)
                 {
-                    Kind = kind;
-                    ForcesByEpsilon = distributedForcesByEpsilon;
+                    continue; // skip zero-length intervals
                 }
-                public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+
+                if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon1) <= tol)
                 {
-                    Vector<double> result = Vector<double>.Build.Dense(6 * intervals.Count, 0.0);
-                    for (int i = 0; i < intervals.Count; i++)
-                    {
-                        double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
-                        Vector<double> forceLeftLocal = GetForceAtEpsilon(intervals[i].Epsilon1, false);
-                        Vector<double> forceRightLocal = GetForceAtEpsilon(intervals[i].Epsilon2, true);
-                        // Apply the forces to the result vector
-                        var intervalLocalPair = GetLocalVector(forceLeftLocal, forceRightLocal, lengthInterval);
-                        Vector<double> intervalGlobalVectorLeft = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
-                            intervals[i].RotationMatrix, intervalLocalPair[0]);
-                        Vector<double> intervalGlobalVectorRight = RotationMatrixClass.SwitchVectorFromLocalToGlobal(
-                            intervals[i].RotationMatrix, intervalLocalPair[1]);
-                        result.SetSubVector(6 * i, 6, intervalGlobalVectorLeft);
-                        result.SetSubVector(6 * (i + 1), 6, intervalGlobalVectorRight);
-                    }
-                    return result;
+                    double coef = intervals[i].Epsilon1 == 0.0 ? 1.0 : 2.0;
+                    var localForce = punctual.Value.GetVector();
+                    var rotationMatrix6x6 = intervals[i].RotationMatrix.SubMatrix(0, 6, 0, 6);
+                    var globalForce = RotationMatrixClass.SwitchVectorFromLocalToGlobal(rotationMatrix6x6, localForce);
+                    result.SetSubVector(6 * i, 6, result.SubVector(6 * i, 6) + globalForce / coef);
+                }
+
+                if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon2) <= tol)
+                {
+                    double coef = intervals[i].Epsilon2 == 1.0 ? 1.0 : 2.0;
+                    var localForce = punctual.Value.GetVector();
+                    var rotationMatrix6x6 = intervals[i].RotationMatrix.SubMatrix(0, 6, 0, 6);
+                    var globalForce = RotationMatrixClass.SwitchVectorFromLocalToGlobal(rotationMatrix6x6, localForce);
+                    result.SetSubVector(6 * i, 6, result.SubVector(6 * i, 6) + globalForce / coef);
                 }
             }
 
-            public sealed class LocalPunctualForce : Force
+            return result;
+        }
+        protected override LocalPunctualForce CloneTyped()
+        {
+            return new LocalPunctualForce(Kind, KindCase, ForcesByEpsilon);
+        }
+    }
+
+    public class OwnWeight : Force<OwnWeight>
+    {
+        public OwnWeight()
+            : base(ForceShape.InternalEffort)
+        {
+            KindCase = 1;
+            Kind = ForceKind.OwnWeight;
+        }
+        public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+        {
+            Vector<double> result = Vector<double>.Build.Dense(6 * (intervals.Count + 1), 0.0);
+            for (int i = 0; i < intervals.Count; i++)
             {
-                // Remplacer 'LocalPosition' par 'Epsilon' pour rester cohérent
-                public LocalPunctualForce(ForceKind kind, int load_case, List<(float Epsilon, ForceValue Value)> distributedForcesByEpsilon)
-                    : base(ForceShape.LocalPunctualForce)
+                double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
+                double massPoint = intervals[i].Geometry.A * intervals[i].Material.Rho * lengthInterval * 9.81 / 2;
+
+                // Apply the forces to the result vector
+                Vector<double> intervalGlobalVector = Vector<double>.Build.Dense(new double[]
                 {
-                    KindCase = load_case;
-                    Kind = kind;
-                    ForcesByEpsilon = distributedForcesByEpsilon;
-                }
-
-                public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
-                {
-                    if (intervals == null)
-                        return Vector<double>.Build.Dense(0);
-
-                    int nodes = intervals.Count + 1; // n intervals -> n+1 nodes
-                    Vector<double> result = Vector<double>.Build.Dense(6 * nodes, 0.0);
-
-                    if (ForcesByEpsilon == null || ForcesByEpsilon.Count == 0)
-                        return result;
-
-                    // Formalism: punctual force corresponds to a single force applied at one epsilon
-                    var punctual = ForcesByEpsilon[0];
-                    const double tol = 1e-9;
-
-                    for (int i = 0; i < intervals.Count; i++)
-                    {
-                        if (intervals[i].Epsilon1 == intervals[i].Epsilon2)
-                        {
-                            continue; // skip zero-length intervals
-                        }
-
-                        if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon1) <= tol)
-                        {
-                            double coef = intervals[i].Epsilon1 == 0.0 ? 1.0 : 2.0;
-                            var localForce = punctual.Value.GetVector();
-                            var globalForce = RotationMatrixClass.SwitchVectorFromLocalToGlobal(intervals[i].RotationMatrix, localForce);
-                            result.SetSubVector(6 * i, 6, globalForce / coef);
-                        }
-
-                        if (System.Math.Abs(punctual.Epsilon - intervals[i].Epsilon2) <= tol)
-                        {
-                            double coef = intervals[i].Epsilon2 == 1.0 ? 1.0 : 2.0;
-                            var localForce = punctual.Value.GetVector();
-                            var globalForce = RotationMatrixClass.SwitchVectorFromLocalToGlobal(intervals[i].RotationMatrix, localForce);
-                            result.SetSubVector(6 * (i + 1), 6, globalForce / coef);
-                        }
-                    }
-
-                    return result;
-                }
-            }
-
-            public sealed class OwnWeight : Force
-            {
-                public OwnWeight()
-                    : base(ForceShape.InternalEffort)
-                {
-                    KindCase = 1;
-                }
-                public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
-                {
-                    Vector<double> result = Vector<double>.Build.Dense(6 * intervals.Count, 0.0);
-                    for (int i = 0; i < intervals.Count; i++)
-                    {
-                        double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
-                        double massPoint = intervals[i].Geometry.A * intervals[i].Material.Rho * lengthInterval * 9.81 / 2;
-
-                        // Apply the forces to the result vector
-                        Vector<double> intervalGlobalVector = Vector<double>.Build.Dense(new double[]
-                        {
                             0.0,
-                            (float)(-massPoint),
+                            0.0,
+                            (double)(-massPoint),
                             0.0,
                             0.0,
                             0.0,
                             0.0,
                             0.0,
-                            (float)(-massPoint),
-                            0.0,
+                            (double)(-massPoint),
                             0.0,
                             0.0,
                             0.0
-                        });
-                        result.SetSubVector(6 * i, 6, intervalGlobalVector);
-                    }
-                    return result;
-                }
+                });
+                int idx = 6 * i;
+
+                result.SetSubVector(idx, 12, result.SubVector(idx, 12) + intervalGlobalVector);
+
             }
+            return result;
+        }
 
+        protected override OwnWeight CloneTyped()
+        {
+            return new OwnWeight();
+        }
+    }
+    public class Thermic : Force<Thermic>
+    {
+        public Thermic(double temperatureCase, double temperatureStart)
+            : base(ForceShape.InternalEffort)
+        {
+            TemperatureStart = temperatureStart;
+            TemperatureCase = temperatureCase;
+            KindCase = 1;
+            Kind = ForceKind.Thermal;
 
-            public sealed class Thermic : Force
+        }
+        public double TemperatureStart { get; set; }
+        public double TemperatureCase { get; set; }
+        public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
+        {
+            Vector<double> result = Vector<double>.Build.Dense(6 * (intervals.Count + 1), 0.0);
+            for (int i = 0; i < intervals.Count; i++)
             {
-                public Thermic(double temperatureCase, double temperatureStart)
-                    : base(ForceShape.InternalEffort)
-                {
-                    TemperatureStart = temperatureStart;
-                    TemperatureCase = temperatureCase;
-                    KindCase = 1;
-                }
-                public double TemperatureStart { get; set; }
-                public double TemperatureCase { get; set; }
-                public override Vector<double> GetGlobalForceVector(List<IntervalData> intervals)
-                {
-                    Vector<double> result = Vector<double>.Build.Dense(6 * intervals.Count, 0.0);
-                    for (int i = 0; i < intervals.Count; i++)
-                    {
-                        double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
-                        double deltaT = TemperatureCase - TemperatureStart;
-                        double thermalForce = intervals[i].Material.E * intervals[i].Material.Alpha * deltaT * intervals[i].Geometry.A / 2;
+                double lengthInterval = intervals[i].Point1.DistanceTo(intervals[i].Point2);
+                double deltaT = TemperatureCase - TemperatureStart;
+                double thermalForce = intervals[i].Material.E * intervals[i].Material.Alpha * deltaT / 2;
 
-                        // Apply the forces to the result vector
-                        Vector<double> intervalLocalVector = Vector<double>.Build.Dense(new double[]
-                        {
+                // Apply the forces to the result vector
+                Vector<double> intervalLocalVector = Vector<double>.Build.Dense(new double[]
+                {
                             (double)(-thermalForce),
                             0.0,
                             0.0,
@@ -556,15 +658,19 @@ namespace ofel.Core
                             0.0,
                             0.0,
                             0.0
-                        });
-                        Vector<double> intervalGlobalVector = RotationMatrixClass.SwitchVectorFromLocalToGlobal(intervals[i].RotationMatrix, intervalLocalVector);
-                        result.SetSubVector(6 * i, 6, intervalGlobalVector);
-                    }
-                    return result;
-                }
+                });
+                Vector<double> intervalGlobalVector = RotationMatrixClass.SwitchVectorFromLocalToGlobal(intervals[i].RotationMatrix, intervalLocalVector);
+                int idx = 6 * i;
+
+                result.SetSubVector(idx, 12, result.SubVector(idx, 12) + intervalGlobalVector);
+
             }
-    }
+            return result;
+        }
 
+        protected override Thermic CloneTyped()
+        {
+            return new Thermic(TemperatureCase, TemperatureStart);
+        }
     }
-
 }

@@ -1,6 +1,7 @@
 using System;
+using Ofel.Core.SectionParameter;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     /// <summary>
     /// Associates a normalized position (epsilon) with a Point and its Geometry.
@@ -30,32 +31,28 @@ namespace ofel.Core
             Point = point ?? throw new ArgumentNullException(nameof(point));
             Geometry = geometry ?? throw new ArgumentNullException(nameof(geometry));
         }
-    }
 
+        public PointMemberData Clone()
+        {
+            return new PointMemberData(Epsilon, Point.Clone(), Geometry.Clone());
+        }
+    }
     public sealed class PointStructureData
     {
-        /// <summary>
-        /// The point coordinates.
-        /// </summary>
         public Point Point { get; set; }
-
         public bool IsSupport { get; set; } = false;
-
         public bool IsAssembly { get; set; } = false;
-
-        /// <summary>
-        /// The geometry at this point.
-        /// </summary>
         public DegreesOfFreedom SupportConditions { get; set; }
 
-        public static int nextId = 0;
         public int id { get; set; }
-        public PointStructureData(Point point, bool is_assembly, bool is_support, DegreesOfFreedom supportConditions)
+
+        public PointStructureData(Point point, bool is_assembly, bool is_support, DegreesOfFreedom supportConditions, ref int nextId)
         {
             Point = point ?? throw new ArgumentNullException(nameof(point));
             IsAssembly = is_assembly;
             IsSupport = is_support;
             SupportConditions = supportConditions;
+
             id = nextId++;
         }
         public bool IsPossibleToSharePoint()
@@ -84,18 +81,6 @@ namespace ofel.Core
             if (SupportConditions.IsRotationYReleased) free_indices.Add(id * 6 + 4);
             if (SupportConditions.IsRotationZReleased) free_indices.Add(id * 6 + 5);
             return free_indices;
-        }
-
-        public List<int> SupportIndices()
-        {
-            if (IsSupport)
-            {
-                return new List<int> { id * 6 + 0, id * 6 + 1, id * 6 + 2, id * 6 + 3, id * 6 + 4, id * 6 + 5 };
-            }
-            else
-            {
-                return new List<int>();
-            }
         }
     }
 }

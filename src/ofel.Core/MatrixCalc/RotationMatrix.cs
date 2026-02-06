@@ -1,4 +1,5 @@
 using MathNet.Numerics.LinearAlgebra;
+using Ofel.Core.Utils;
 
 namespace Ofel.MatrixCalc
 {
@@ -27,18 +28,24 @@ namespace Ofel.MatrixCalc
         // Matrice 3x3 sphérique
         public static Matrix<double> SphericalRotation(double theta, double phi, double roll)
         {
-            var part_1 = Matrix<double>.Build.DenseOfArray(new double[,]
+            var part_theta = Matrix<double>.Build.DenseOfArray(new double[,]
             {
-                { Math.Sin(theta)*Math.Cos(phi),  Math.Sin(theta)*Math.Sin(phi),  Math.Cos(theta) },
-                { Math.Cos(theta)*Math.Cos(phi),  Math.Cos(theta)*Math.Sin(phi), -Math.Sin(theta) },
-                { -Math.Sin(phi),                 Math.Cos(phi),                  0.0             }
+                { Math.Cos(theta),  0,  Math.Sin(theta)},
+                { 0 , 1, 0},
+                { -Math.Sin(theta), 0.0, Math.Cos(theta)}
             });
-            var part_2 = Matrix<double>.Build.DenseOfArray(new double[,] {
+            var part_phi = Matrix<double>.Build.DenseOfArray(new double[,]
+            {
+                { Math.Cos(phi),  -Math.Sin(phi),  0 },
+                { Math.Sin(phi), Math.Cos(phi), 0 },
+                { 0, 0 ,1.0 }
+            });
+            var part_roll = Matrix<double>.Build.DenseOfArray(new double[,] {
                 { 1,  0,  0 },
                 { 0,  Math.Cos(roll), -Math.Sin(roll) },
                 { 0,  Math.Sin(roll), Math.Cos(roll)}
             });
-            return part_1 * part_2;
+            return part_roll * part_phi * part_theta;
         }
 
         public static Matrix<double> SphericalRotation6x6(double theta, double phi, double roll)

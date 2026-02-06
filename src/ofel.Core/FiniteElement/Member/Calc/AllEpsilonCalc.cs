@@ -1,10 +1,11 @@
+using Ofel.Core.SectionParameter;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
 
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     /// <summary>
     /// Utility to compute the list of MainEpsilon for a member.
@@ -12,7 +13,7 @@ namespace ofel.Core
     /// </summary>
     public static class AllEpsilonCalc
     {
-        public static List<MainEpsilon> ComputeAllEpsilons(Member member, List<MainEpsilon> mainEpsilons,  double mesh, int minVals = 2, int maxVals = 8)
+        public static List<MainEpsilon> ComputeAllEpsilons(Member member, List<MainEpsilon> mainEpsilons, double mesh, int minVals = 2, int maxVals = 16)
         {
             if (member == null) throw new ArgumentNullException(nameof(member));
             if (mainEpsilons == null) throw new ArgumentNullException(nameof(mainEpsilons));
@@ -22,15 +23,15 @@ namespace ofel.Core
                       .OrderBy(me => me.Epsilon)
                       .ToList();
             int sizeMain = all.Count;
-            double memberLength = member.Length;
+            double memberLength = member.GetMemberLength();
 
-            for (int i = 0; i < sizeMain-1; i++)
+            for (int i = 0; i < sizeMain - 1; i++)
             {
                 var a = all[i];
                 var b = all[i + 1];
                 double interval = (b.Epsilon - a.Epsilon);
                 double intervalLength = interval * memberLength;
-
+                IGeometry section = member.GetInterpolatedGeometry(a.Epsilon);
                 int desired = Math.Max(1, (int)Math.Round(intervalLength / mesh));
 
                 int n;
@@ -49,9 +50,13 @@ namespace ofel.Core
                     double val = a.Epsilon + k * step;
                     if (val < 0.0) val = 0.0;
                     if (val > 1.0) val = 1.0;
-                    all.Add(new MainEpsilon(val, KindMainEpsilon.Default));
+                    var main = new MainEpsilon(val, KindMainEpsilon.Default);
+                    main.SetGeometry(section);
+                    main.SetMaterial(member.Material);
+                    all.Add(main);
                 }
             }
+
             return all.OrderBy(me => me.Epsilon).ToList();
         }
 

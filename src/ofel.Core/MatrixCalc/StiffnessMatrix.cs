@@ -1,14 +1,17 @@
 using System;
 using System.Reflection;
 using MathNet.Numerics.LinearAlgebra;
-using ofel.Core;
+using Ofel.Core;
+using Ofel.Core.SectionParameter;
+
+
 
 namespace Ofel.MatrixCalc
 {
     /// <summary>
     /// Managed wrapper for computing beam element stiffness matrices using Eigen.NET.
     /// </summary>
-    public static class MatrixCalc
+    public static class MatrixHelpers
     {
         public static Matrix<double> FlexionFixed(double E, double G, double I, double A_v, double L, bool isYAxis)
         {
@@ -19,18 +22,18 @@ namespace Ofel.MatrixCalc
             K[0, 0] = (12.0 * E * I / (Math.Pow(L, 3) * (1 + phi)));
             K[0, 1] = coef * (6.0 * E * I / (Math.Pow(L, 2) * (1 + phi)));
             K[0, 2] = -K[0, 0];
-            K[0, 3] = coef * K[0, 1];
-            K[1, 0] = coef * K[0, 1];
+            K[0, 3] = K[0, 1];
+            K[1, 0] = K[0, 1];
             K[1, 1] = (4.0 + phi) * E * I / (L * (1 + phi));
-            K[1, 2] = -coef * K[0, 1];
+            K[1, 2] = -K[0, 1];
             K[1, 3] = (2.0 - phi) * E * I / (L * (1 + phi));
             K[2, 0] = K[0, 2];
-            K[2, 1] = -coef * K[1, 2];
+            K[2, 1] = K[1, 2];
             K[2, 2] = K[0, 0];
-            K[2, 3] = -coef * K[0, 1];
-            K[3, 0] = coef * K[0, 1];
-            K[3, 1] = K[1, 3];  
-            K[3, 2] = -coef * K[0, 1];
+            K[2, 3] = -K[0, 1];
+            K[3, 0] = K[0, 3];
+            K[3, 1] = K[1, 3];
+            K[3, 2] = K[2, 3];
             K[3, 3] = K[1, 1];
             return K;
         }
@@ -129,7 +132,7 @@ namespace Ofel.MatrixCalc
             return K;
         }
 
-        public static Matrix<double> Stiffness(IGeometry section, Material material, IsHinged hingeLeft, IsHinged hingeRight, double L)
+        public static Matrix<double> Stiffness(IGeometry section, IMaterial material, IsHinged hingeLeft, IsHinged hingeRight, double L)
         {
             Matrix<double> normal = Normal(material.E, section.A, L);
             Matrix<double> torsion = Matrix<double>.Build.Dense(2, 2);
@@ -148,6 +151,10 @@ namespace Ofel.MatrixCalc
             {
                 torsion = TorsionHingedFixed(material.G, section.I_t, L);
             }
+            else if (!hingeLeft.X && !hingeRight.X)
+            {
+                torsion = TorsionFixed(material.G, section.I_t, L);
+            }
             if (hingeLeft.Y && hingeRight.Y)
             {
                 throw new NotImplementedException("Flexion hinged-hinged not implemented yet.");
@@ -162,7 +169,7 @@ namespace Ofel.MatrixCalc
             }
             else if (!hingeLeft.Y && !hingeRight.Y)
             {
-                flexionY = FlexionFixed(material.E, material.G, section.I_z, section.A_y, L, false);
+                flexionY = FlexionFixed(material.E, material.G, section.I_z, section.A_y, L, true);
             }
             if (hingeLeft.Z && hingeRight.Z)
             {
@@ -182,22 +189,22 @@ namespace Ofel.MatrixCalc
             }
             // Build assembly matrices and validate dimensions before assembling
             var asmNormal = AssemblyMatrixClass.GetAssemblyMatrix(12, new System.Collections.Generic.List<int> { 0, 6 });
-            if (asmNormal.ColumnCount != normal.RowCount)
+            if (asmNormal.RowCount != normal.ColumnCount)
                 throw new ArgumentException($"Assembly matrix columns ({asmNormal.ColumnCount}) do not match normal rows ({normal.RowCount}). Connectivity: [0,6]");
             normal = AssemblyMatrixClass.AssembleMatrix(asmNormal, normal);
 
             var asmFlexY = AssemblyMatrixClass.GetAssemblyMatrix(12, new System.Collections.Generic.List<int> { 1, 5, 7, 11 });
-            if (asmFlexY.ColumnCount != flexionY.RowCount)
+            if (asmFlexY.RowCount != flexionY.ColumnCount)
                 throw new ArgumentException($"Assembly matrix columns ({asmFlexY.ColumnCount}) do not match flexionY rows ({flexionY.RowCount}). Connectivity: [1,5,7,11]");
             flexionY = AssemblyMatrixClass.AssembleMatrix(asmFlexY, flexionY);
 
             var asmFlexZ = AssemblyMatrixClass.GetAssemblyMatrix(12, new System.Collections.Generic.List<int> { 2, 4, 8, 10 });
-            if (asmFlexZ.ColumnCount != flexionZ.RowCount)
+            if (asmFlexZ.RowCount != flexionZ.ColumnCount)
                 throw new ArgumentException($"Assembly matrix columns ({asmFlexZ.ColumnCount}) do not match flexionZ rows ({flexionZ.RowCount}). Connectivity: [2,4,8,10]");
             flexionZ = AssemblyMatrixClass.AssembleMatrix(asmFlexZ, flexionZ);
 
             var asmTors = AssemblyMatrixClass.GetAssemblyMatrix(12, new System.Collections.Generic.List<int> { 3, 9 });
-            if (asmTors.ColumnCount != torsion.RowCount)
+            if (asmTors.RowCount != torsion.ColumnCount)
                 throw new ArgumentException($"Assembly matrix columns ({asmTors.ColumnCount}) do not match torsion rows ({torsion.RowCount}). Connectivity: [3,9]");
             torsion = AssemblyMatrixClass.AssembleMatrix(asmTors, torsion);
             return normal + flexionY + flexionZ + torsion;

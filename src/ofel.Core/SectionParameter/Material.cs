@@ -1,26 +1,20 @@
 using System;
 
-namespace ofel.Core
+namespace Ofel.Core.SectionParameter
 {
     /// <summary>
     /// Base class for materials.
     /// </summary>
-    public abstract class Material
+    public interface IMaterial
     {
-        public string Name { get; protected set; }
+        string Name { get; }
 
-        public double E { get; }
-        public double G { get; }
-        public double Rho { get; }
-        public double Alpha { get; }
+        double E { get; }
+        double G { get; }
+        double Rho { get; }
+        double Alpha { get; }
 
-        protected Material(string name, double e, double g, double rho, double alpha)
-        {
-            Name = name ?? throw new ArgumentNullException(nameof(name));
-            E = e;
-            G = g;
-            Rho = rho;
-            Alpha = alpha;
-        }
+        // Retourne une copie du matériau
+        IMaterial Clone();
     }
 }

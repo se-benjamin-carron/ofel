@@ -2,8 +2,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.PortableExecutable;
+using Ofel.Core.SectionParameter;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     /// <summary>
     /// Représente un élément (Member) défini par un dictionnaire de points, une géométrie et un matériau.
@@ -14,28 +15,22 @@ namespace ofel.Core
         // List of PointData linking epsilon (float) to a geometry and
         // all the characteristics needed in order to perform the FE analysis
         // this enables to have different geometry along the member and curves shape
-        public List<PointMemberData> PointsData { get; } = new List<PointMemberData>();
+        public List<PointMemberData> PointsData { get; set; } = new List<PointMemberData>();
 
         // liste de caractéristiques attachées au member
-        public List<ICharacteristic> Characteristics { get; } = new List<ICharacteristic>();
+        public List<Characteristic> Characteristics { get; set; } = new List<Characteristic>();
 
         // liste de forces appliquées au member
         public List<Force> Forces { get; } = new List<Force>();
 
         // Material that can be modified after construction
-        public Material Material { get; set; }
-
-        public Member(List<PointMemberData> points_data, Material material)
-        {
-
-            PointsData = new List<PointMemberData>(points_data);
-            Material = material;
-            Length = GetMemberLength();
-        }
+        public IMaterial? Material { get; set; }
 
         public double Length { get; set; } = 0.0;
 
         public double Roll { get; set; } = 0.0;
+
+        public Member() { }
 
         // Helper methods to manage points
         public void AddPointData(PointMemberData p)
@@ -65,25 +60,25 @@ namespace ofel.Core
         }
 
         // characteristic helpers
-        public void AddCharacteristic(ICharacteristic c)
+        public void AddCharacteristic(Characteristic c)
         {
             if (c == null) throw new System.ArgumentNullException(nameof(c));
             Characteristics.Add(c);
         }
 
-        public bool RemoveCharacteristic(ICharacteristic c)
+        public bool RemoveCharacteristic(Characteristic c)
         {
             return Characteristics.Remove(c);
         }
 
-        public IEnumerable<ICharacteristic> GetCharacteristicsByKind(string kind)
+        public IEnumerable<Characteristic> GetCharacteristicsByKind(string kind)
         {
             foreach (var c in Characteristics)
                 if (string.Equals(c.Kind, kind, System.StringComparison.OrdinalIgnoreCase)) yield return c;
         }
         public Spring getSpringDataFromEpsilon(double epsilon)
         {
-            foreach (ICharacteristic c in Characteristics)
+            foreach (Characteristic c in Characteristics)
             {
                 if (c is SpringChar sc && Math.Abs(sc.Epsilon - epsilon) < 1e-6)
                 {
@@ -95,7 +90,7 @@ namespace ofel.Core
 
         public DegreesOfFreedom getSupportDataFromEpsilon(double epsilon)
         {
-            foreach (ICharacteristic c in Characteristics)
+            foreach (Characteristic c in Characteristics)
             {
                 if (c is SupportChar sc && Math.Abs(sc.Epsilon - epsilon) < 1e-6)
                 {
@@ -107,7 +102,7 @@ namespace ofel.Core
 
         public IsHinged getHingedConditionFromEpsilon(double epsilon)
         {
-            foreach (ICharacteristic c in Characteristics)
+            foreach (Characteristic c in Characteristics)
             {
                 if (c is HingeChar hc && Math.Abs(hc.Epsilon - epsilon) < 1e-6)
                 {
@@ -118,7 +113,7 @@ namespace ofel.Core
         }
         public bool IsAssembly(double epsilon)
         {
-            foreach (ICharacteristic c in Characteristics)
+            foreach (Characteristic c in Characteristics)
             {
                 if (c is AssemblyChar ac && Math.Abs(ac.Epsilon - epsilon) < 5e-7)
                 {
@@ -130,7 +125,7 @@ namespace ofel.Core
 
         public bool IsSupport(double epsilon)
         {
-            foreach (ICharacteristic c in Characteristics)
+            foreach (Characteristic c in Characteristics)
             {
                 if (c is SupportChar sc && Math.Abs(sc.Epsilon - epsilon) < 5e-7)
                 {
@@ -184,7 +179,7 @@ namespace ofel.Core
             if (epsilon < 0f || epsilon > 1f)
                 throw new System.ArgumentOutOfRangeException(nameof(epsilon), "epsilon must be between 0 and 1");
             var pts = PointsData.OrderBy(pd => pd.Epsilon).ToList();
-            if (pts.Count == 0)  throw new System.InvalidOperationException("No point data available.");
+            if (pts.Count == 0) throw new System.InvalidOperationException("No point data available.");
             if (epsilon <= pts.First().Epsilon) return pts.First().Geometry;
             if (epsilon >= pts.Last().Epsilon) return pts.Last().Geometry;
             for (int i = 0; i < pts.Count - 1; i++)
@@ -227,6 +222,27 @@ namespace ofel.Core
                 }
             }
             throw new InvalidOperationException("Could not interpolate point for given epsilon.");
+        }
+        public Member Clone()
+        {
+            var clonedPointsData = PointsData.Select(pd => pd.Clone()).ToList();
+            var clonedMaterial = Material.Clone();
+            var clonedMember = new Member()
+            {
+                Material = clonedMaterial,
+                PointsData = clonedPointsData,
+                Length = this.Length,
+                Roll = this.Roll
+            };
+            foreach (var characteristic in Characteristics)
+            {
+                clonedMember.AddCharacteristic(characteristic.Clone());
+            }
+            foreach (var force in Forces)
+            {
+                clonedMember.AddForce(force.Clone());
+            }
+            return clonedMember;
         }
     }
 }

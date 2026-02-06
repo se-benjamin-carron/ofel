@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     /// <summary>
     /// Minimal rotation helper: provides conversion from global vector to local member coordinates.

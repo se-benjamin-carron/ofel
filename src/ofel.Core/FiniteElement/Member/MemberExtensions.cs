@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection.PortableExecutable;
 
-namespace ofel.Core
+namespace Ofel.Core
 {
     /// <summary>
     /// Fluent extension helpers for <see cref="Member"/> to enable chaining without
@@ -10,6 +11,12 @@ namespace ofel.Core
     /// </summary>
     public static class MemberExtensions
     {
+        public static Member WithAssembly(this Member member, double epsilon)
+        {
+            if (member == null) throw new ArgumentNullException(nameof(member));
+            member.AddCharacteristic(new AssemblyChar(epsilon));
+            return member;
+        }
         public static Member WithForce(this Member member, Force force)
         {
             if (member == null) throw new ArgumentNullException(nameof(member));
@@ -18,11 +25,23 @@ namespace ofel.Core
             return member;
         }
 
-        public static Member WithHingedSupport(this Member member, double epsilon, bool isXRotationFixed = true, bool isYRotationFixed = true, bool isZRotationFixed = true)
+        public static Member WithHingedSupport(this Member member, double epsilon, bool isXRotationFixed = false, bool isYRotationFixed = false, bool isZRotationFixed = false)
         {
             if (member == null) throw new ArgumentNullException(nameof(member));
             var supportChar = new SupportChar((float)epsilon, new DegreesOfFreedom(false, false, false, !isXRotationFixed, !isYRotationFixed, !isZRotationFixed));
             member.AddCharacteristic(supportChar);
+            return member;
+        }
+
+        public static Member SetCharacteristics(this Member member, IEnumerable<Characteristic> chars)
+        {
+            if (member == null) throw new ArgumentNullException(nameof(member));
+            if (chars == null) throw new ArgumentNullException(nameof(chars));
+            member.Characteristics.Clear();
+            foreach (var c in chars)
+            {
+                if (c != null) member.AddCharacteristic(c);
+            }
             return member;
         }
 
@@ -41,7 +60,7 @@ namespace ofel.Core
             return member;
         }
 
-        public static Member WithCharacteristic(this Member member, ICharacteristic characteristic)
+        public static Member WithCharacteristic(this Member member, Characteristic characteristic)
         {
             if (member == null) throw new ArgumentNullException(nameof(member));
             if (characteristic == null) throw new ArgumentNullException(nameof(characteristic));
@@ -49,7 +68,7 @@ namespace ofel.Core
             return member;
         }
 
-        public static Member WithCharacteristics(this Member member, IEnumerable<ICharacteristic> characteristics)
+        public static Member WithCharacteristics(this Member member, IEnumerable<Characteristic> characteristics)
         {
             if (member == null) throw new ArgumentNullException(nameof(member));
             if (characteristics == null) throw new ArgumentNullException(nameof(characteristics));

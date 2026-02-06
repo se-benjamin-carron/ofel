@@ -1,9 +1,13 @@
 using System;
 using System.Formats.Asn1;
+using System.Reflection.Metadata;
 using MathNet.Numerics.LinearAlgebra;
+using Ofel.Core.Utils;
 using Ofel.MatrixCalc;
+using Ofel.Core.SectionParameter;
 
-namespace ofel.Core
+
+namespace Ofel.Core
 {
     /// <summary>
     /// Associates a normalized position (epsilon) with a Point and its Geometry.
@@ -33,7 +37,7 @@ namespace ofel.Core
         /// <summary>
         /// The material at this interval.
         /// </summary>
-        public Material Material { get; set; }
+        public IMaterial Material { get; set; }
 
         /// <summary>
         /// The angles (in radians) of the interval.
@@ -73,20 +77,20 @@ namespace ofel.Core
         /// </summary>
         public Matrix<double> GlobalUniformStressMatrix { get; set; }
 
-        public Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>> LocalDisplacements
+        public Dictionary<string, Vector<double>> LocalDisplacements
         {
             get; set;
-        } = new Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>>();
+        } = new Dictionary<string, Vector<double>>();
 
-        public Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>> InternalEfforts
+        public Dictionary<string, Vector<double>> InternalEfforts
         {
             get; set;
-        } = new Dictionary<string, MathNet.Numerics.LinearAlgebra.Vector<double>>();
+        } = new Dictionary<string, Vector<double>>();
 
         public Point Point1 { get; set; }
         public Point Point2 { get; set; }
 
-        public IntervalData(double epsilon1, double epsilon2, Point point1, Point point2, IGeometry geometry, Material material, double roll,
+        public IntervalData(double epsilon1, double epsilon2, Point point1, Point point2, IGeometry geometry, IMaterial material, double roll,
         KindMainEpsilon startKind, KindMainEpsilon endKind, IsHinged hingedCondition, Spring springData)
         {
             if (epsilon1 < 0.0 || epsilon1 > 1.0)
@@ -117,7 +121,7 @@ namespace ofel.Core
             GlobalUniformStressMatrix = RotationMatrixClass.SwitchMatrixFromLocalToGlobal(RotationMatrix, UniformStressMatrix);
         }
 
-        private List<double> ComputeAngles(Point point1, Point point2)
+        public static List<double> ComputeAngles(Point point1, Point point2)
         {
             double length = point1.DistanceTo(point2);
 
@@ -125,12 +129,36 @@ namespace ofel.Core
             double delta_y = point2.Y - point1.Y;
             double delta_z = point2.Z - point1.Z;
 
-            double cos_theta = delta_z / length;
-            double theta = Math.Acos(cos_theta);
-
+            double ratio_theta = delta_z / length;
             double x2_y2 = Math.Sqrt(Math.Pow(delta_x, 2) + Math.Pow(delta_y, 2));
-            double phi;
+            double theta;
+            if (delta_z == 0)
+            {
+                theta = 0;
+            }
+            else if (x2_y2 == 0)
+            {
+                double coef_theta = delta_z > 0 ? 1 : -1;
+                theta = coef_theta * Math.PI / 2;
+            }
+            else
+            {
+                theta = Math.Asin(ratio_theta);
+            }
 
+            double phi;
+            if (delta_x == 0)
+            {
+                if (delta_y == 0)
+                {
+                    phi = 0;
+                }
+                else
+                {
+                    double coef = delta_y > 0 ? 1 : -1;
+                    phi = -1 * coef * Math.PI / 2;
+                }
+            }
             if (delta_y > 0)
             {
                 phi = Math.Acos(delta_x / x2_y2);
@@ -141,13 +169,13 @@ namespace ofel.Core
             }
             else
             {
-                phi = Math.PI / 2;
+                phi = 0;
             }
 
             return new List<double> { theta, phi, 0.0 };
         }
 
-        private Matrix<double> GetStiffnessMatrixFromMainEpsilonTypes(KindMainEpsilon startKind, KindMainEpsilon endKind, IGeometry geometry, Material material, IsHinged hingedCondition, Spring springData)
+        private Matrix<double> GetStiffnessMatrixFromMainEpsilonTypes(KindMainEpsilon startKind, KindMainEpsilon endKind, IGeometry geometry, IMaterial material, IsHinged hingedCondition, Spring springData)
         {
             if (geometry == null) throw new ArgumentNullException(nameof(geometry));
             if (material == null) throw new ArgumentNullException(nameof(material));
@@ -156,19 +184,19 @@ namespace ofel.Core
             double Length = Point1.DistanceTo(Point2);
             if (startKind == KindMainEpsilon.SpringChar && endKind == KindMainEpsilon.SpringChar)
             {
-                return MatrixCalc.SpringStiffness(springData.U_X, springData.U_Y, springData.U_Z, springData.T_X, springData.T_Y, springData.T_Z);
+                return MatrixHelpers.SpringStiffness(springData.U_X, springData.U_Y, springData.U_Z, springData.T_X, springData.T_Y, springData.T_Z);
             }
             else if (startKind == KindMainEpsilon.UnNaturalHingeChar || endKind == KindMainEpsilon.NaturalHingeChar)
             {
-                return MatrixCalc.Stiffness(geometry, material, isHingedNeutral, hingedCondition, Length);
+                return MatrixHelpers.Stiffness(geometry, material, isHingedNeutral, hingedCondition, Length);
             }
             else if (startKind == KindMainEpsilon.NaturalHingeChar || endKind == KindMainEpsilon.UnNaturalHingeChar)
             {
-                return MatrixCalc.Stiffness(geometry, material, hingedCondition, isHingedNeutral, Length);
+                return MatrixHelpers.Stiffness(geometry, material, hingedCondition, isHingedNeutral, Length);
             }
 
             // Default: no special hinge/spring characteristics -> use neutral hinges (both fixed as per Stiffness implementation)
-            return MatrixCalc.Stiffness(geometry, material, isHingedNeutral, isHingedNeutral, Length);
+            return MatrixHelpers.Stiffness(geometry, material, isHingedNeutral, isHingedNeutral, Length);
         }
         public void computeInternalEfforts(string loading_case)
         {
@@ -176,8 +204,8 @@ namespace ofel.Core
                 throw new ArgumentException($"No local displacements found for loading case '{loading_case}'.");
             else
             {
-                MathNet.Numerics.LinearAlgebra.Vector<double> localDisplacements = LocalDisplacements[loading_case];
-                MathNet.Numerics.LinearAlgebra.Vector<double> internalEfforts = StiffnessMatrix * localDisplacements;
+                Vector<double> localDisplacements = LocalDisplacements[loading_case];
+                Vector<double> internalEfforts = StiffnessMatrix * localDisplacements;
                 InternalEfforts[loading_case] = internalEfforts;
             }
         }
